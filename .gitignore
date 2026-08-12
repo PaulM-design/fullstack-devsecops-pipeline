@@ -15,3 +15,5 @@ terraform.tfvars
 tfplan
 .vercel/
 work/
+
+.cache/

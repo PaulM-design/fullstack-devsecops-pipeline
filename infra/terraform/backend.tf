@@ -1,10 +1,9 @@
 terraform {
   backend "s3" {
-    # Replace these bootstrap values before `terraform init`.
-    bucket         = "REPLACE_ME-devsecops-terraform-state"
+    bucket         = "paulm-design-fullstack-devsecops-terraform-state"
     key            = "devsecops-demo/production.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "REPLACE_ME-terraform-locks"
+    dynamodb_table = "paulm-design-fullstack-devsecops-terraform-locks"
     encrypt        = true
   }
 }
