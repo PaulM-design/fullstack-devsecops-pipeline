@@ -34,7 +34,7 @@ export default async function Home() {
           </article>
         ))}
       </section>
-      <footer><span>GITHUB ACTIONS</span><span>TERRAFORM</span><span>VERCEL + AWS</span></footer>
+      <footer><span>GITHUB ACTIONS</span><span>TERRAFORM</span><span>Built by Paul Musgrave 2026</span><span>VERCEL + AWS</span></footer>
     </main>
   );
 }
