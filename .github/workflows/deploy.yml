@@ -1,0 +1,94 @@
+name: Deploy production
+
+on:
+  workflow_run:
+    workflows: ["CI and security"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy-api:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - id: login
+        uses: aws-actions/amazon-ecr-login@v2
+      - id: meta
+        shell: bash
+        run: echo "image=${{ steps.login.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: api
+          load: true
+          tags: ${{ steps.meta.outputs.image }}
+      - uses: aquasecurity/trivy-action@0.32.0
+        with:
+          image-ref: ${{ steps.meta.outputs.image }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - run: docker push "${{ steps.meta.outputs.image }}"
+      - id: previous
+        shell: bash
+        run: |
+          previous=$(aws ecs describe-services --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_SERVICE }}" --query 'services[0].taskDefinition' --output text)
+          echo "task_definition=$previous" >> "$GITHUB_OUTPUT"
+          aws ecs describe-task-definition --task-definition "$previous" --query taskDefinition > task-definition.json
+      - id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: api
+          image: ${{ steps.meta.outputs.image }}
+      - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ vars.ECS_SERVICE }}
+          cluster: ${{ vars.ECS_CLUSTER }}
+          wait-for-service-stability: true
+      - name: Smoke test
+        run: curl --fail --retry 6 --retry-all-errors --retry-delay 10 "${{ vars.NEXT_PUBLIC_API_URL }}/health"
+      - name: Restore previous revision after failed deployment
+        if: failure() && steps.previous.outputs.task_definition != ''
+        run: |
+          aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_SERVICE }}" --task-definition "${{ steps.previous.outputs.task_definition }}"
+          aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_SERVICE }}"
+
+  deploy-web:
+    needs: deploy-api
+    runs-on: ubuntu-latest
+    environment: production
+    defaults: { run: { working-directory: web } }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --global vercel@latest
+      - run: vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+        env: { VERCEL_ORG_ID: "${{ secrets.VERCEL_ORG_ID }}", VERCEL_PROJECT_ID: "${{ secrets.VERCEL_PROJECT_ID }}" }
+      - run: vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+        env: { NEXT_PUBLIC_API_URL: "${{ vars.NEXT_PUBLIC_API_URL }}", VERCEL_ORG_ID: "${{ secrets.VERCEL_ORG_ID }}", VERCEL_PROJECT_ID: "${{ secrets.VERCEL_PROJECT_ID }}" }
+      - run: vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+        env: { VERCEL_ORG_ID: "${{ secrets.VERCEL_ORG_ID }}", VERCEL_PROJECT_ID: "${{ secrets.VERCEL_PROJECT_ID }}" }
+

@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+*.egg-info/
+*.tsbuildinfo
+.pytest_cache/
+.ruff_cache/
+node_modules/
+.next/
+coverage/
+.coverage
+*.tfstate*
+.terraform/
+terraform.tfvars
+tfplan
+.vercel/
+work/

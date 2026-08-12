@@ -1,0 +1,5 @@
+aws_region        = "us-east-1"
+project_name      = "devsecops-demo"
+github_repository = "your-org/your-repo"
+# Bootstrap ECR first, push the API image, and set its immutable URI here.
+container_image   = "123456789012.dkr.ecr.us-east-1.amazonaws.com/devsecops-demo-api:bootstrap"

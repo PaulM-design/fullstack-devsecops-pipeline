@@ -1,0 +1,62 @@
+name: Rollback production
+
+on:
+  workflow_dispatch:
+    inputs:
+      ecs_task_definition:
+        description: "Task definition ARN/family:revision; blank selects the prior revision"
+        required: false
+        type: string
+      vercel_deployment:
+        description: "Deployment ID/URL; blank selects previous production deployment"
+        required: false
+        type: string
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Select and deploy ECS revision
+        shell: bash
+        env: { REQUESTED_TASK: "${{ inputs.ecs_task_definition }}" }
+        run: |
+          target="$REQUESTED_TASK"
+          if [ -z "$target" ]; then
+            current=$(aws ecs describe-services --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_SERVICE }}" --query 'services[0].taskDefinition' --output text)
+            revision=${current##*:}
+            if [ "$revision" -le 1 ]; then echo "No prior task definition revision exists"; exit 1; fi
+            target="${current%:*}:$((revision - 1))"
+          fi
+          aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_SERVICE }}" --task-definition "$target"
+          aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_SERVICE }}"
+          curl --fail --retry 6 --retry-all-errors --retry-delay 10 "${{ vars.NEXT_PUBLIC_API_URL }}/health"
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Roll back Vercel
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          REQUESTED_DEPLOYMENT: ${{ inputs.vercel_deployment }}
+        run: |
+          npm install --global vercel@latest
+          if [ -n "$REQUESTED_DEPLOYMENT" ]; then
+            vercel rollback "$REQUESTED_DEPLOYMENT" --yes --token="$VERCEL_TOKEN"
+          else
+            vercel rollback --yes --token="$VERCEL_TOKEN"
+          fi
+
