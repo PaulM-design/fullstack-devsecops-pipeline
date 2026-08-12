@@ -35,7 +35,7 @@ jobs:
       - id: meta
         shell: bash
         run: echo "image=${{ steps.login.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: api
           load: true
