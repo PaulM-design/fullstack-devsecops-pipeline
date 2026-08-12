@@ -43,7 +43,7 @@ jobs:
           aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "${{ vars.ECS_SERVICE }}" --task-definition "$target"
           aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "${{ vars.ECS_SERVICE }}"
           curl --fail --retry 6 --retry-all-errors --retry-delay 10 "${{ vars.NEXT_PUBLIC_API_URL }}/health"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
       - name: Roll back Vercel
         shell: bash
